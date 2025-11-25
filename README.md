@@ -1,162 +1,124 @@
 # Zweek Code
 
-**Local-Only AI Coding Assistant**  
-Fully offline • Privacy-first • Multi-model architecture
+**AI Coding Assistant That Runs on YOUR Machine**  
+No cloud. No telemetry. Just you and your code.
+
+![Zweek Code Demo](demo.png)
 
 ---
 
-> **🚀 New to C++?** Check out [QUICKSTART.md](QUICKSTART.md) for step-by-step installation and build instructions!
+## What Is This?
 
----
+A terminal-based AI coding assistant powered by specialized local models. Unlike cloud assistants, everything runs offline on consumer hardware using optimized small models (135M-1.1B parameters).
 
-## Overview
-
-Zweek Code is a terminal-based AI coding assistant that runs entirely offline on consumer hardware. Instead of relying on a single large language model, it orchestrates five specialized models (each under 150M parameters) working in sequence to provide coding assistance similar to cloud-based solutions.
-
-## Architecture
-
-The system uses a **5-stage pipeline**:
-
-1. **Planner** – Breaks down user requests into discrete, tool-based steps
-2. **Code Drafter** – Generates raw code (C++/Python/JS) from the plan
-3. **Style Enforcer** – Refines syntax, naming, and formatting per conventions
-4. **Complexity Auditor** – Flags functions over 200 lines, high cyclomatic complexity, or inefficient patterns
-5. **Final Gatekeeper** – Applies deterministic rules and approves output
-
-All models are quantized for CPU inference (INT8/FP16), loadable one at a time to minimize memory.
-
-## System Requirements
-
-**Minimum:**
-- CPU: 4-core x86-64 (2015-era or newer, e.g., Intel Skylake, AMD Zen)
-- RAM: 4GB
-- Storage: 1GB for models and application
-- OS: Windows 10/11, Linux, macOS
-
-**Recommended:**
-- RAM: 8GB+
-- SSD for faster model loading
-
-## Building from Source
-
-### Prerequisites
-
-- CMake 3.15+
-- C++17 compatible compiler (MSVC 2019+, GCC 9+, Clang 10+)
-- Internet connection (for fetching dependencies during build)
-
-### Build Instructions
-
-```bash
-# Clone the repository
-git clone https://github.com/wedsmoker/zweek-code.git
-cd zweek-code
-
-# Create build directory
-mkdir build && cd build
-
-# Configure and build
-cmake ..
-cmake --build . --config Release
-
-# Run
-./zweek  # Linux/macOS
-zweek.exe  # Windows
-```
-
-## Models
-
-Zweek Code uses the following specialized models:
-
-| Role | Model | Parameters | Memory (INT8) |
-|------|-------|------------|---------------|
-| Planner | SmolLM-135M | 135M | ~150MB |
-| Code Drafter | tiny_starcoder_py | 164M | ~200MB |
-| Style Enforcer | CodeT5-small | 60M | ~80MB |
-| Complexity Auditor | CodeBERT-small | 60M | ~70MB |
-| Gatekeeper | SmolLM-135M | 135M | ~150MB |
-
-Models are loaded sequentially, so **peak RAM usage is only ~700MB**.
-
-### Downloading Models
-
-Models should be placed in the `models/` directory:
-
-```
-models/
-├── planner/
-│   └── smollm-135m-q8_0.gguf
-├── drafter/
-│   └── tiny_starcoder_py-q8_0.gguf
-├── enforcer/
-│   └── codet5-small-int8.onnx
-├── auditor/
-│   └── codebert-small-int8.onnx
-└── gatekeeper/
-    └── smollm-135m-q8_0.gguf
-```
-
-Download links and instructions are available in the [models documentation](docs/models.md).
-
-## Usage
-
-1. **Launch Zweek Code:**
-   ```bash
-   zweek
-   ```
-
-2. **Enter your request** in the input field (e.g., "Add error handling to the login function")
-
-3. **Watch the pipeline** as it progresses through each stage:
-   - 🔍 Planning
-   - 🔧 Tool Execution
-   - 💻 Code Drafting
-   - 🎨 Style Enforcement
-   - 📊 Complexity Auditing
-   - 🔐 Gatekeeper Review
-
-4. **Review the generated code** and quality metrics
-
-5. **Accept, Modify, or Reject** the suggested changes
+**Philosophy:** Use deterministic tools when possible, AI when necessary.
 
 ## Features
 
-- ✅ **Fully Offline** – No internet required, all processing local
-- ✅ **Privacy First** – Your code never leaves your machine
-- ✅ **Lightweight** – Runs on decade-old consumer hardware
-- ✅ **Multi-Language** – C++, Python, JavaScript support
-- ✅ **Quality Checks** – Automated complexity analysis and style enforcement
-- ✅ **Tool Integration** – File operations, shell execution, code search
-- ✅ **Beautiful TUI** – Modern terminal interface with FTXUI
+✅ **100% Offline** – No internet, no tracking, no data leaves your machine  
+✅ **Fast** – Router stays resident (~150MB RAM), responses in seconds  
+✅ **Private** – Your code is yours  
+✅ **Lightweight** – Runs on older hardware (4GB RAM minimum)  
+✅ **Smart Routing** – SmolLM classifies intent (CODE/CHAT/TOOL) instantly
 
-## Project Status
+## Architecture
 
-**Current Version:** v1.0.0-alpha
+**Optimized 3-Model System:**
 
-This is an early-stage project. The TUI foundation is complete, and we're currently implementing:
+1. **Router** (SmolLM-135M) - Stays loaded, classifies intent with GBNF grammar
+2. **Code Drafter** (StarCoder-Tiny) - Generates code when needed
+3. **Chat** (TinyLlama-1.1B) - Answers questions about your code
 
-- [ ] Model loader integration (llama.cpp, ONNX Runtime)
-- [ ] Pipeline orchestration
-- [ ] Tool executor with sandboxing
-- [ ] Model fine-tuning for each role
+**Key Optimizations:**
+- Resident models stay in memory (~350MB idle)
+- GBNF grammars eliminate hallucination
+- Compiler check (`cl.exe`) validates code instantly (no AI)
+- Peak RAM: ~500MB during inference
 
-See the [implementation plan](docs/implementation-plan.md) for details.
+## Quick Start
 
-## Contributing
+### Requirements
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+- Windows 10/11, Linux, or macOS
+- 4GB RAM minimum (8GB recommended)
+- CMake 3.20+
+- C++17 compiler
+
+### Build
+
+```bash
+git clone https://github.com/wedsmoker/zweek-code.git
+cd zweek-code
+
+# Download models (place in models/ directory)
+# - smollm-135m-router.gguf
+# - tinyllama-chat.gguf  
+# - starcoder-tiny.gguf
+
+cmake -S . -B build -G Ninja
+cmake --build build
+.\build\zweek.exe  # Windows
+./build/zweek      # Linux/macOS
+```
+
+See [QUICKSTART.md](QUICKSTART.md) for detailed instructions.
+
+## Usage
+
+```
+> /help
+Show commands and tips
+
+> what is this function doing?
+Chat mode answers questions
+
+> add error handling here
+Code mode generates fixes
+```
+
+**Keyboard:**
+- `m` - Switch between Plan and Auto mode
+- `y`/`n` - Accept/reject changes  
+- `Ctrl+C` - Exit
+
+## Models
+
+Place these in `models/`:
+
+| Model | Size | Purpose | RAM |
+|-------|------|---------|-----|
+| smollm-135m-router.gguf | ~150MB | Intent classification | Resident |
+| starcoder-tiny.gguf | ~200MB | Code generation | On-demand |
+| tinyllama-chat.gguf | ~1.2GB | Q&A | On-demand |
+
+Download from HuggingFace (GGUF Q8 quantized versions).
+
+## Performance
+
+**Target:** <15 seconds for most operations  
+**Idle RAM:** ~350MB (Router + Code Drafter resident)  
+**Peak RAM:** ~500MB during chat inference
+
+## Status
+
+**v1.0.0-alpha** - Phase 2 Complete
+
+✅ TUI with FTXUI  
+✅ Router with GBNF  
+✅ Chat mode with TinyLlama  
+✅ Compiler-based validation  
+✅ Command system  
+
+## Tech Stack
+
+- [llama.cpp](https://github.com/ggerganov/llama.cpp) - GGUF model inference
+- [FTXUI](https://github.com/ArthurSonzogni/FTXUI) - Terminal UI
+- [nlohmann/json](https://github.com/nlohmann/json) - JSON handling
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-- [FTXUI](https://github.com/ArthurSonzogni/FTXUI) - Terminal UI framework
-- [llama.cpp](https://github.com/ggerganov/llama.cpp) - LLM inference
-- [ONNX Runtime](https://onnxruntime.ai/) - Model inference
-- All open-source model creators
+MIT - See [LICENSE](LICENSE)
 
 ---
 
-**Built with ❤️ for local-first AI development**
+**No cloud. No compromises. Your code, your machine.**
