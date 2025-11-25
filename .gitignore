@@ -34,4 +34,5 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.cache/
 *.code-workspace
