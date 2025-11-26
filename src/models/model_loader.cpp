@@ -67,12 +67,6 @@ bool ModelLoader::Load(const std::string &model_path, int n_ctx) {
   llama_sampler_chain_add(sampler_, llama_sampler_init_top_k(40));
   llama_sampler_chain_add(sampler_, llama_sampler_init_top_p(0.95f, 1));
   llama_sampler_chain_add(sampler_, llama_sampler_init_temp(0.7f));
-  
-  // Add repetition penalty (1.1 is a good default)
-  // last_n = 64, repeat_penalty = 1.1, alpha_frequency = 0.0, alpha_presence = 0.0
-  llama_sampler_chain_add(sampler_, 
-      llama_sampler_init_penalties(64, 1.1f, 0.0f, 0.0f));
-
   llama_sampler_chain_add(sampler_,
                           llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
