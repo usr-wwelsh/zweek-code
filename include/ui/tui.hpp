@@ -37,6 +37,9 @@ struct TUIState {
   std::string quality_report;
   bool show_diff = false;
   std::vector<std::string> conversation_history;
+  int scroll_position = 0; // For manual scrolling (-1 = sticky bottom)
+  std::vector<std::string> command_history; // Previous submitted commands
+  int history_index = -1; // Current position in history (-1 = not browsing)
 };
 
 class TUI {

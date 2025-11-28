@@ -86,21 +86,16 @@ void Orchestrator::RunChatMode(const std::string &request) {
   // Use ChatMode to respond
   std::vector<std::string> context; // TODO: Get relevant files
   
-  // Initial empty response to start the stream
-  if (response_callback_) {
-    response_callback_(""); 
-  }
-
   std::string response = chat_mode_.Chat(request, context, [&](const std::string& chunk) {
     if (stream_callback_) {
       stream_callback_(chunk);
     }
   });
 
-  // Final complete response (optional, or just rely on stream)
-  // if (response_callback_) {
-  //   response_callback_(response);
-  // }
+  // Mark as complete after streaming finishes
+  if (response_callback_) {
+    response_callback_("");
+  }
 }
 
 void Orchestrator::RunToolMode(const std::string &request) {

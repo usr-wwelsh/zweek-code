@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Prototype Stage**: This project is currently in a pre-release/prototype stage. The actual coding functionality has not been fully implemented yet as research into optimization is ongoing.
+
 # Zweek Code
 
 **AI Coding Assistant That Runs on YOUR Machine**  

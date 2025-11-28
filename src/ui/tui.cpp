@@ -15,6 +15,7 @@ TUI::TUI() : screen_(ScreenInteractive::Fullscreen()) {
       "Welcome to Zweek Code - Local AI Coding Assistant");
   state_.conversation_history.push_back("Type your request and press Enter...");
   state_.conversation_history.push_back("");
+  state_.scroll_position = -1; // Start with sticky scrolling enabled
 }
 
 TUI::~TUI() = default;
@@ -119,7 +120,7 @@ Component TUI::CreateLayout() {
 }
 
 Component TUI::CreateTerminalView() {
-  return Renderer([this] {
+  auto renderer = Renderer([this] {
     // Build conversation history display
     Elements history_elements;
 
@@ -137,41 +138,149 @@ Component TUI::CreateTerminalView() {
                                color(Color::GrayLight) | dim);
     history_elements.push_back(text(""));
 
-    // Show conversation history (last 100 messages for full responses)
-    int start_idx = std::max(0, (int)state_.conversation_history.size() - 100);
-    for (int i = start_idx; i < state_.conversation_history.size(); i++) {
+    // Show conversation history (all messages, not just last 100)
+    int total_messages = state_.conversation_history.size();
+    
+    // Determine target scroll position
+    int render_pos = state_.scroll_position;
+    
+    // Calculate total lines for clamping/sticky logic
+    // Note: This must match the actual number of elements pushed below
+    int total_lines = history_elements.size() + total_messages;
+    if (state_.current_stage != PipelineStage::Idle &&
+        state_.current_stage != PipelineStage::Complete) {
+        total_lines += 2; // For status bar
+    }
+
+    // Sticky scrolling: if -1, jump to bottom
+    if (state_.scroll_position == -1) {
+        render_pos = total_lines - 1;
+    }
+
+    for (int i = 0; i < total_messages; i++) {
       const auto &msg = state_.conversation_history[i];
+      Element e;
 
       // Color code based on message type
       if (msg.find("Error:") == 0) {
-        history_elements.push_back(text(msg) | color(Color::Red));
+        e = text(msg) | color(Color::Red);
       } else if (msg.find("[") == 0 && msg.find("]") != std::string::npos) {
         // Status messages
-        history_elements.push_back(text(msg) | color(Color::Yellow) | dim);
+        e = text(msg) | color(Color::Yellow) | dim;
       } else if (msg.find("Generated code:") == 0) {
-        history_elements.push_back(text(msg) | color(Color::Green) | bold);
+        e = text(msg) | color(Color::Green) | bold;
       } else if (msg.find("Quality:") == 0) {
-        history_elements.push_back(text(msg) | color(Color::Cyan));
+        e = text(msg) | color(Color::Cyan);
       } else if (msg.find("Switched to") == 0) {
-        history_elements.push_back(text(msg) | color(Color::Magenta));
+        e = text(msg) | color(Color::Magenta);
       } else if (msg.find(">") == 0) {
         // User input
-        history_elements.push_back(text(msg) | color(Color::White) | bold);
+        e = text(msg) | color(Color::White) | bold;
       } else {
-        history_elements.push_back(text(msg));
+        e = text(msg);
       }
+
+      // Apply focus to the element at the current scroll position
+      if (history_elements.size() == render_pos) {
+          e = e | focus;
+      }
+      history_elements.push_back(e);
     }
 
     // Show current status if processing
     if (state_.current_stage != PipelineStage::Idle &&
         state_.current_stage != PipelineStage::Complete) {
       history_elements.push_back(text(""));
-      history_elements.push_back(hbox(
+      auto status_bar = hbox(
           {text("Working... "), gauge(state_.progress) | flex,
-           text(" " + std::to_string((int)(state_.progress * 100)) + "%")}));
+           text(" " + std::to_string((int)(state_.progress * 100)) + "%")});
+      
+      if (history_elements.size() == render_pos) {
+          status_bar = status_bar | focus;
+      }
+      history_elements.push_back(status_bar);
+    }
+    
+    // Safety clamp (in case we are not in sticky mode but out of bounds)
+    if (render_pos >= history_elements.size() && !history_elements.empty()) {
+        // We can't easily change the focus of already pushed elements without rebuilding
+        // But since we render every frame, next frame will be correct if we update state
+        // For this frame, just focus the last one
+        history_elements.back() = history_elements.back() | focus;
     }
 
-    return vbox(history_elements) | frame;
+    return vbox(history_elements) | vscroll_indicator | frame | flex;
+  });
+
+  return CatchEvent(renderer, [this](Event event) {
+    // Calculate total lines to handle bounds
+    int logo_lines = 0;
+    std::string logo = ZWEEK_LOGO;
+    std::istringstream logo_stream(logo);
+    std::string line;
+    while (std::getline(logo_stream, line)) { if(!line.empty()) logo_lines++; }
+    logo_lines += 2; // Version + empty line
+
+    int total_lines = logo_lines + state_.conversation_history.size();
+    if (state_.current_stage != PipelineStage::Idle &&
+        state_.current_stage != PipelineStage::Complete) {
+        total_lines += 2;
+    }
+
+    auto scroll_up = [&](int amount) {
+        if (state_.scroll_position == -1) {
+            state_.scroll_position = total_lines - 1;
+        }
+        state_.scroll_position -= amount;
+        if (state_.scroll_position < 0) state_.scroll_position = 0;
+    };
+
+    auto scroll_down = [&](int amount) {
+        if (state_.scroll_position == -1) return; // Already at bottom
+        
+        state_.scroll_position += amount;
+        if (state_.scroll_position >= total_lines - 1) {
+            state_.scroll_position = -1; // Re-enable sticky
+        }
+    };
+
+    if (event.is_mouse()) {
+        if (event.mouse().button == Mouse::WheelUp) {
+            scroll_up(3);
+            return true;
+        }
+        if (event.mouse().button == Mouse::WheelDown) {
+            scroll_down(3);
+            return true;
+        }
+    }
+    
+    if (event == Event::ArrowUp || event == Event::Character('k')) {
+        scroll_up(1);
+        return true;
+    }
+    if (event == Event::ArrowDown || event == Event::Character('j')) {
+        scroll_down(1);
+        return true;
+    }
+    if (event == Event::PageUp) {
+        scroll_up(10);
+        return true;
+    }
+    if (event == Event::PageDown) {
+        scroll_down(10);
+        return true;
+    }
+    if (event == Event::Home) {
+        state_.scroll_position = 0;
+        return true;
+    }
+    if (event == Event::End) {
+        state_.scroll_position = -1;
+        return true;
+    }
+
+    return false;
   });
 }
 
@@ -201,6 +310,9 @@ Component TUI::CreateInputLine() {
   input_opt.on_enter = [this] {
     if (!state_.user_input.empty()) {
       state_.conversation_history.push_back("> " + state_.user_input);
+      // Add to command history
+      state_.command_history.push_back(state_.user_input);
+      state_.history_index = -1; // Reset history browsing
       if (on_submit_) {
         on_submit_(state_.user_input);
       }
@@ -213,6 +325,33 @@ Component TUI::CreateInputLine() {
   // Simple keyboard shortcuts (press 'm' to switch modes, 'y' to accept, 'n' to
   // reject)
   auto input_with_hotkeys = CatchEvent(input_box, [this](Event event) {
+    // Up arrow - navigate to previous command in history
+    if (event == Event::ArrowUp) {
+      if (!state_.command_history.empty()) {
+        if (state_.history_index == -1) {
+          // Start browsing from most recent
+          state_.history_index = state_.command_history.size() - 1;
+        } else if (state_.history_index > 0) {
+          state_.history_index--;
+        }
+        state_.user_input = state_.command_history[state_.history_index];
+        return true;
+      }
+    }
+    // Down arrow - navigate to next command in history
+    if (event == Event::ArrowDown) {
+      if (state_.history_index != -1) {
+        if (state_.history_index < state_.command_history.size() - 1) {
+          state_.history_index++;
+          state_.user_input = state_.command_history[state_.history_index];
+        } else {
+          // End of history, clear input
+          state_.history_index = -1;
+          state_.user_input.clear();
+        }
+        return true;
+      }
+    }
     // Press 'm' to switch mode
     if (event.is_character() && event.character() == "m") {
       // Only switch if input is empty (so typing 'm' in requests still works)

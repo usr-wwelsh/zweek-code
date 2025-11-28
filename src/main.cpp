@@ -16,7 +16,10 @@ int main(int argc, char **argv) {
       [&](const std::string &status) { tui.AddToHistory(status); });
 
   orchestrator.SetResponseCallback([&](const std::string &response) {
-    tui.AddToHistory(response);
+    // Only add to history if response is not empty
+    if (!response.empty()) {
+      tui.AddToHistory(response);
+    }
     tui.UpdateStage(PipelineStage::Complete, 1.0f);
   });
 
