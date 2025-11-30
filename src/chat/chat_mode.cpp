@@ -51,13 +51,23 @@ std::string ChatMode::Chat(const std::string &user_message,
   }
 
   // Use ChatML format for Qwen3 with thinking trigger
+  // Use ChatML format for Qwen3 with thinking trigger
   std::string prompt = 
     "<|im_start|>system\n"
-    "You are a helpful coding assistant.<|im_end|>\n"
-    "<|im_start|>user\n" + 
-    user_message + "<|im_end|>\n"
-    "<|im_start|>assistant\n"
-    "<|im_start|>think\n";
+    "You are a helpful coding assistant.<|im_end|>\n";
+
+  // Add history (last 10 messages to fit context)
+  int start_idx = std::max(0, (int)history_.size() - 10);
+  for (int i = start_idx; i < history_.size(); ++i) {
+    prompt += "<|im_start|>" + history_[i].role + "\n" + 
+              history_[i].content + "<|im_end|>\n";
+  }
+
+  // Add current user message and trigger thinking
+  prompt += "<|im_start|>user\n" + 
+            user_message + "<|im_end|>\n" +
+            "<|im_start|>assistant\n" +
+            "<|im_start|>think\n";
 
   // Increased max tokens to 2048 to prevent cutoff
   // Wrap callback to detect stuck thinking
