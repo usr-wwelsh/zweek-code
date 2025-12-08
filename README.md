@@ -50,7 +50,7 @@ A terminal-based AI coding assistant powered by specialized local models. Unlike
 ### Build
 
 ```bash
-git clone https://github.com/wedsmoker/zweek-code.git
+git clone https://github.com/usr-wwelsh/zweek-code.git
 cd zweek-code
 
 # Download models (place in models/ directory)
