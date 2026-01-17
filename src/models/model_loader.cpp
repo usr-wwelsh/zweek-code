@@ -19,7 +19,12 @@ ModelLoader::ModelLoader() {
 }
 
 ModelLoader::~ModelLoader() {
+  // Force unload even for resident models on destruction
+  bool was_resident = is_resident_;
+  is_resident_ = false;
   Unload();
+  is_resident_ = was_resident;
+
   llama_backend_free();
 }
 
@@ -30,9 +35,12 @@ bool ModelLoader::LoadResident(const std::string &model_path, int n_ctx) {
 
 bool ModelLoader::Load(const std::string &model_path, int n_ctx) {
   // Unload existing model first
+  bool was_resident = is_resident_;
+  is_resident_ = false;  // Temporarily allow unload
   if (model_ != nullptr) {
     Unload();
   }
+  is_resident_ = was_resident;
 
   n_ctx_ = n_ctx;
 
@@ -66,8 +74,6 @@ bool ModelLoader::Load(const std::string &model_path, int n_ctx) {
 
   llama_sampler_chain_add(sampler_, llama_sampler_init_top_k(40));
   llama_sampler_chain_add(sampler_, llama_sampler_init_top_p(0.95f, 1));
-  llama_sampler_chain_add(sampler_, 
-                          llama_sampler_init_penalties(64, 1.5f, 0.0f, 0.0f));
   llama_sampler_chain_add(sampler_, llama_sampler_init_temp(0.7f));
   llama_sampler_chain_add(sampler_,
                           llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
@@ -91,7 +97,13 @@ void ModelLoader::Unload() {
     llama_free(ctx_);
     ctx_ = nullptr;
   }
+
+  if (model_) {
+    llama_free_model(model_);
+    model_ = nullptr;
+  }
 }
+
 std::string ModelLoader::Infer(const std::string &prompt,
                                const std::string &grammar, int max_tokens,
                                std::function<void(const std::string &)> stream_callback,
@@ -102,17 +114,34 @@ std::string ModelLoader::Infer(const std::string &prompt,
 
   return RunInference(prompt, grammar, max_tokens, stream_callback, interrupt_flag);
 }
+
 std::string ModelLoader::RunInference(const std::string &prompt,
                                       const std::string &grammar,
                                       int max_tokens,
                                       std::function<void(const std::string &)> stream_callback,
                                       std::atomic<bool>* interrupt_flag) {
+  // Recreate context to clear KV cache (prevents overflow on repeated calls)
+  if (ctx_) {
+    llama_free(ctx_);
+    ctx_ = nullptr;
+  }
+
+  llama_context_params ctx_params = llama_context_default_params();
+  ctx_params.n_ctx = n_ctx_;
+  ctx_params.n_batch = 512;
+  ctx_params.n_threads = 4;
+  ctx_ = llama_new_context_with_model(model_, ctx_params);
+
+  if (!ctx_) {
+    return "[Error: Failed to recreate context]";
+  }
+
   // Tokenize
   std::vector<llama_token> tokens;
   tokens.resize(prompt.size() + 16);
   const llama_vocab *vocab = llama_model_get_vocab(model_);
   int n_tokens = llama_tokenize(vocab, prompt.c_str(), prompt.size(),
-                                tokens.data(), tokens.size(), true, true); // parse_special = true
+                                tokens.data(), tokens.size(), true, true);
   if (n_tokens < 0)
     return "[Error: Tokenization failed]";
   tokens.resize(n_tokens);
@@ -121,6 +150,30 @@ std::string ModelLoader::RunInference(const std::string &prompt,
   llama_batch batch = llama_batch_get_one(tokens.data(), n_tokens);
   if (llama_decode(ctx_, batch) != 0)
     return "[Error: Decode failed]";
+
+  // If grammar provided, create a temporary sampler with grammar constraint
+  llama_sampler* active_sampler = sampler_;
+  llama_sampler* grammar_sampler = nullptr;
+
+  if (!grammar.empty()) {
+    auto sparams = llama_sampler_chain_default_params();
+    grammar_sampler = llama_sampler_chain_init(sparams);
+
+    if (grammar_sampler) {
+      // Try to create grammar sampler
+      llama_sampler* gs = llama_sampler_init_grammar(vocab, grammar.c_str(), "root");
+      if (gs) {
+        llama_sampler_chain_add(grammar_sampler, gs);
+      }
+      // Add standard samplers
+      llama_sampler_chain_add(grammar_sampler, llama_sampler_init_top_k(40));
+      llama_sampler_chain_add(grammar_sampler, llama_sampler_init_top_p(0.95f, 1));
+      llama_sampler_chain_add(grammar_sampler, llama_sampler_init_temp(0.7f));
+      llama_sampler_chain_add(grammar_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+      active_sampler = grammar_sampler;
+    }
+  }
 
   // Generate tokens with streaming display
   std::string result;
@@ -134,14 +187,15 @@ std::string ModelLoader::RunInference(const std::string &prompt,
         stream_callback("\n[interrupted]");
       }
       result += "\n[interrupted]";
-      
+
       // Reset sampler to prevent continuation
-      llama_sampler_reset(sampler_);
-      
+      llama_sampler_reset(active_sampler);
+
       break;
     }
 
-    llama_token tok = llama_sampler_sample(sampler_, ctx_, -1);
+    llama_token tok = llama_sampler_sample(active_sampler, ctx_, -1);
+
     if (llama_token_is_eog(vocab, tok))
       break;
 
@@ -152,19 +206,16 @@ std::string ModelLoader::RunInference(const std::string &prompt,
 
       // Word wrap: insert newline if line gets too long
       if (line_length + token_str.length() > MAX_LINE_LENGTH) {
-        bool wrapped = false;
         // If token starts with space, replace it with newline
         if (!token_str.empty() && token_str[0] == ' ') {
           token_str[0] = '\n';
           line_length = 0;
-          wrapped = true;
         }
         // Otherwise if it's a long word or we can't find a space, force wrap
         else if (line_length > 0) {
           if (stream_callback) stream_callback("\n");
           result += "\n";
           line_length = 0;
-          wrapped = true;
         }
       }
 
@@ -176,9 +227,6 @@ std::string ModelLoader::RunInference(const std::string &prompt,
         line_length = 0;
       }
 
-      // Stream to console for immediate feedback (optional)
-      // std::cout << token_str << std::flush;
-      
       if (stream_callback) {
         stream_callback(token_str);
       }
@@ -188,6 +236,12 @@ std::string ModelLoader::RunInference(const std::string &prompt,
     if (llama_decode(ctx_, batch) != 0)
       break;
   }
+
+  // Clean up grammar sampler if we created one
+  if (grammar_sampler) {
+    llama_sampler_free(grammar_sampler);
+  }
+
   return result;
 }
 } // namespace models

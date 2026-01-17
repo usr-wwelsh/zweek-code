@@ -100,16 +100,120 @@ void Orchestrator::SetDirectoryUpdateCallback(
   directory_update_callback_ = callback;
 }
 
+void Orchestrator::SetAgentThoughtCallback(
+    std::function<void(const std::string &)> callback) {
+  agent_thought_callback_ = callback;
+}
+
+void Orchestrator::SetAgentCommandCallback(
+    std::function<void(const std::string &)> callback) {
+  agent_command_callback_ = callback;
+}
+
+void Orchestrator::SetAgentResultCallback(
+    std::function<void(const std::string &, bool)> callback) {
+  agent_result_callback_ = callback;
+}
+
 void Orchestrator::RunCodePipeline(const std::string &request) {
-  // TODO: Implement 5-model pipeline
-  // For now, just mock it
-  if (progress_callback_) {
-    progress_callback_("[PLAN] Analyzing request...");
+  // Lazy-initialize the recursive agent
+  if (!agent_) {
+    agent_config_.model_path = "models/Qwen3-0.6B-Q8_0.gguf";
+    agent_config_.max_steps = 25;
+    agent_config_.max_tokens_per_step = 512;
+    agent_config_.context_window = 2048;
+    agent_config_.history_window = 8;
+
+    agent_ = std::make_unique<coder::RecursiveAgent>(agent_config_);
+
+    if (progress_callback_) {
+      progress_callback_("Initializing code agent...");
+    }
+
+    if (!agent_->Init()) {
+      if (response_callback_) {
+        response_callback_("ERROR: Failed to initialize code agent. Check model path.");
+      }
+      agent_.reset();
+      return;
+    }
   }
 
+  // Wire up agent callbacks
+  coder::AgentCallbacks callbacks;
+
+  callbacks.on_progress = [this](const std::string& msg) {
+    if (progress_callback_) {
+      progress_callback_(msg);
+    }
+  };
+
+  callbacks.on_thought = [this](const std::string& thought) {
+    if (agent_thought_callback_) {
+      agent_thought_callback_(thought);
+    }
+    if (progress_callback_) {
+      progress_callback_("Thinking: " + thought.substr(0, 60) + (thought.length() > 60 ? "..." : ""));
+    }
+  };
+
+  callbacks.on_command = [this](const std::string& cmd) {
+    if (agent_command_callback_) {
+      agent_command_callback_(cmd);
+    }
+    // Extract just the command type for progress display
+    std::string cmd_preview = cmd.substr(0, cmd.find('\n'));
+    if (cmd_preview.length() > 50) {
+      cmd_preview = cmd_preview.substr(0, 50) + "...";
+    }
+    if (progress_callback_) {
+      progress_callback_("Executing: " + cmd_preview);
+    }
+  };
+
+  callbacks.on_tool_result = [this](const coder::ToolResult& result) {
+    if (agent_result_callback_) {
+      std::string output = result.success ? result.output : "ERROR: " + result.error;
+      agent_result_callback_(output, result.success);
+    }
+  };
+
+  callbacks.on_stream = [this](const std::string& token) {
+    if (stream_callback_) {
+      stream_callback_(token);
+    }
+  };
+
+  callbacks.on_finish = [this](const std::string& summary) {
+    if (progress_callback_) {
+      progress_callback_("Task complete");
+    }
+  };
+
+  callbacks.on_error = [this](const std::string& error) {
+    if (progress_callback_) {
+      progress_callback_("Agent error: " + error);
+    }
+  };
+
+  agent_->SetCallbacks(callbacks);
+
+  // Start and run the task
+  agent_->StartTask(request, tool_executor_.GetWorkingDirectory());
+
+  std::string result = agent_->Run(interrupt_flag_);
+
+  // Store in history
+  history_manager_.LogChatMessage("user", request);
+  history_manager_.LogChatMessage("assistant", result);
+
+  // Send final response
   if (response_callback_) {
-    response_callback_("Code generation coming in Phase 2!");
+    response_callback_(result);
   }
+
+  // Reset agent for next task (keeps model loaded for faster subsequent requests)
+  agent_->Reset();
 }
 
 void Orchestrator::RunChatMode(const std::string &request) {

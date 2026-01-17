@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chat/chat_mode.hpp"
+#include "coder/recursive_agent.hpp"
 #include "commands/command_handler.hpp"
 #include "history/history_manager.hpp"
 #include "pipeline/router.hpp"
@@ -8,6 +9,7 @@
 #include <functional>
 #include <string>
 #include <atomic>
+#include <memory>
 
 
 namespace zweek {
@@ -30,6 +32,11 @@ public:
   void SetResponseCallback(std::function<void(const std::string &)> callback);
   void SetStreamCallback(std::function<void(const std::string &)> callback);
   void SetDirectoryUpdateCallback(std::function<void(const std::string &)> callback);
+
+  // Agent-specific callbacks for RLM harness
+  void SetAgentThoughtCallback(std::function<void(const std::string &)> callback);
+  void SetAgentCommandCallback(std::function<void(const std::string &)> callback);
+  void SetAgentResultCallback(std::function<void(const std::string &, bool)> callback);
   
   // Set interrupt flag for cancellation
   void SetInterruptFlag(std::atomic<bool>* flag) { interrupt_flag_ = flag; }
@@ -52,12 +59,21 @@ private:
   history::HistoryManager history_manager_;
   tools::ToolExecutor tool_executor_;
 
+  // Recursive agent for code tasks (lazy-initialized)
+  std::unique_ptr<coder::RecursiveAgent> agent_;
+  coder::AgentConfig agent_config_;
+
   // Callbacks
   std::function<void(const std::string &)> progress_callback_;
   std::function<void(const std::string &)> response_callback_;
   std::function<void(const std::string &)> stream_callback_;
   std::function<void(const std::string &)> directory_update_callback_;
-  
+
+  // Agent-specific callbacks
+  std::function<void(const std::string &)> agent_thought_callback_;
+  std::function<void(const std::string &)> agent_command_callback_;
+  std::function<void(const std::string &, bool)> agent_result_callback_;
+
   // Interrupt flag
   std::atomic<bool>* interrupt_flag_ = nullptr;
 };

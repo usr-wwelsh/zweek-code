@@ -50,6 +50,8 @@ set(SOURCES
     src/pipeline/orchestrator.cpp
     src/pipeline/router.cpp
     src/chat/chat_mode.cpp
+    src/coder/agent_toolset.cpp
+    src/coder/recursive_agent.cpp
     src/models/model_loader.cpp
     src/models/model_downloader.cpp
     src/tools/tool_executor.cpp
@@ -94,3 +96,18 @@ target_link_libraries(zweek_tests
 )
 
 add_test(NAME ToolExecutorTest COMMAND zweek_tests)
+
+# Agent toolset tests
+add_executable(agent_toolset_tests
+    tests/test_agent_toolset.cpp
+    src/coder/agent_toolset.cpp
+)
+
+target_include_directories(agent_toolset_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+target_link_libraries(agent_toolset_tests
+    PRIVATE
+        nlohmann_json::nlohmann_json
+)
+
+add_test(NAME AgentToolSetTest COMMAND agent_toolset_tests)
