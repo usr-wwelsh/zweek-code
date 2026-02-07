@@ -2,6 +2,7 @@
 #include "history/history_manager.hpp"
 #include "chat/chat_mode.hpp"
 #include "tools/tool_executor.hpp"
+#include <algorithm>
 #include <filesystem>
 
 namespace zweek {
